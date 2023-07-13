@@ -5,8 +5,8 @@ using Microsoft.CodeAnalysis;
 
 namespace LearnSourceGen;
 
-[Generator]
-public sealed class ProgramSourceGenerator : IIncrementalGenerator
+public abstract class EnumExtensionsSourceGenerator<T> : IIncrementalGenerator
+    where T : struct, IConvertible
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -14,29 +14,27 @@ public sealed class ProgramSourceGenerator : IIncrementalGenerator
 
         context.RegisterSourceOutput(
             compilationProvider,
-            static (context, compilation) =>
+            (context, compilation) =>
         {
-            // Get the entry point method
-            var mainMethod = compilation.GetEntryPoint(context.CancellationToken);
-            var typeName = mainMethod!.ContainingType.Name;
+            string typeName = ExtensionClassName;
 
             StringBuilder dictionaryFiller = new();
-            foreach (FieldInfo fieldInfo in typeof(RateLimitReason).GetFields())
+            foreach (FieldInfo fieldInfo in typeof(T).GetFields())
             {
                 DescriptionAttribute? description = fieldInfo.GetCustomAttribute<DescriptionAttribute>();
                 if (description != null)
                 {
-                    dictionaryFiller.AppendLine($@"_reasonDescriptions[(RateLimitReason){fieldInfo.GetRawConstantValue()!}] = ""{description.Description}"";");
+                    dictionaryFiller.AppendLine($"""{MappingDictionaryFieldName}[({typeof(T).Name}){fieldInfo.GetRawConstantValue()!}] = "{description.Description}";""");
                 }
             }
 
             string source = $$"""
                 // Auto-generated code
-                namespace {{mainMethod.ContainingNamespace.ToDisplayString()}};
+                namespace {{ExtensionNamespace}};
                 
                 public static partial class {{typeName}}
                 {
-                    static partial void InitializeRateLimitReasons()
+                    static partial void {{InitializationMethodName}}()
                     {
                         {{dictionaryFiller.ToString()}}
                     }
@@ -47,4 +45,12 @@ public sealed class ProgramSourceGenerator : IIncrementalGenerator
             context.AddSource($"{typeName}.g.cs", source);
         });
     }
+
+    protected abstract string ExtensionClassName { get; }
+
+    protected abstract string ExtensionNamespace { get; }
+
+    protected virtual string InitializationMethodName { get; } = "InitializeDescriptionDictionary";
+
+    protected virtual string MappingDictionaryFieldName { get; } = "_descriptionMap";
 }
